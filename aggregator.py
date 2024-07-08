@@ -6,6 +6,7 @@ import numpy
 
 
 class Aggregator(nn.Module):
+
     def __init__(self, batch_size, dim, dropout, act, name=None):
         super(Aggregator, self).__init__()
         self.dropout = dropout
@@ -18,11 +19,15 @@ class Aggregator(nn.Module):
 
 
 class LocalAggregator(nn.Module):
-    def __init__(self, dim, alpha, dropout=0., name=None):
+
+    # A local aggregator block, representing the local session graph structure.
+
+    def __init__(self, dim, alpha, dropout=0.0, name=None):
         super(LocalAggregator, self).__init__()
         self.dim = dim
         self.dropout = dropout
 
+        # types of connections: in, out, in-out, self-loop
         self.a_0 = nn.Parameter(torch.Tensor(self.dim, 1))
         self.a_1 = nn.Parameter(torch.Tensor(self.dim, 1))
         self.a_2 = nn.Parameter(torch.Tensor(self.dim, 1))
@@ -32,12 +37,14 @@ class LocalAggregator(nn.Module):
         self.leakyrelu = nn.LeakyReLU(alpha)
 
     def forward(self, hidden, adj, mask_item=None):
+
         h = hidden
         batch_size = h.shape[0]
         N = h.shape[1]
 
-        a_input = (h.repeat(1, 1, N).view(batch_size, N * N, self.dim)
-                   * h.repeat(1, N, 1)).view(batch_size, N, N, self.dim)
+        a_input = (
+            h.repeat(1, 1, N).view(batch_size, N * N, self.dim) * h.repeat(1, N, 1)
+        ).view(batch_size, N, N, self.dim)
 
         e_0 = torch.matmul(a_input, self.a_0)
         e_1 = torch.matmul(a_input, self.a_1)
@@ -61,6 +68,15 @@ class LocalAggregator(nn.Module):
 
 
 class GlobalAggregator(nn.Module):
+
+    # A global aggregator block, representing the global session graph structure.
+    # Used to create a global item representation based on the item transition graph.
+    # Breaks down the sequence independence assumption as compared to other SBRS models.
+    # Uses epsilon-neighborhood of the item of interest to sample the neighbors.
+    # Epsilon-neighborhood: the set of items that are within epsilon distance from the item of interest in the local session graph.
+    # Epsilon = 2 is used in the paper.
+    # We keep top-n neighbors based on the weights to reduce the computational complexity.
+
     def __init__(self, dim, dropout, act=torch.relu, name=None):
         super(GlobalAggregator, self).__init__()
         self.dropout = dropout
@@ -72,9 +88,29 @@ class GlobalAggregator(nn.Module):
         self.w_3 = nn.Parameter(torch.Tensor(2 * self.dim, self.dim))
         self.bias = nn.Parameter(torch.Tensor(self.dim))
 
-    def forward(self, self_vectors, neighbor_vector, batch_size, masks, neighbor_weight, extra_vector=None):
+    def forward(
+        self,
+        self_vectors,
+        neighbor_vector,
+        batch_size,
+        masks,
+        neighbor_weight,
+        extra_vector=None,
+    ):
         if extra_vector is not None:
-            alpha = torch.matmul(torch.cat([extra_vector.unsqueeze(2).repeat(1, 1, neighbor_vector.shape[2], 1)*neighbor_vector, neighbor_weight.unsqueeze(-1)], -1), self.w_1).squeeze(-1)
+            alpha = torch.matmul(
+                torch.cat(
+                    [
+                        extra_vector.unsqueeze(2).repeat(
+                            1, 1, neighbor_vector.shape[2], 1
+                        )
+                        * neighbor_vector,
+                        neighbor_weight.unsqueeze(-1),
+                    ],
+                    -1,
+                ),
+                self.w_1,
+            ).squeeze(-1)
             alpha = F.leaky_relu(alpha, negative_slope=0.2)
             alpha = torch.matmul(alpha, self.w_2).squeeze(-1)
             alpha = torch.softmax(alpha, -1).unsqueeze(-1)

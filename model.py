@@ -28,11 +28,11 @@ class CombineGraph(Module):
         self.local_agg = LocalAggregator(self.dim, self.opt.alpha, dropout=0.0)
         self.global_agg = []
         for i in range(self.hop):
-            if opt.activate == 'relu':
+            if opt.activate == "relu":
                 agg = GlobalAggregator(self.dim, opt.dropout_gcn, act=torch.relu)
             else:
                 agg = GlobalAggregator(self.dim, opt.dropout_gcn, act=torch.tanh)
-            self.add_module('agg_gcn_{}'.format(i), agg)
+            self.add_module("agg_gcn_{}".format(i), agg)
             self.global_agg.append(agg)
 
         # Item representation & Position representation
@@ -48,8 +48,12 @@ class CombineGraph(Module):
 
         self.leakyrelu = nn.LeakyReLU(opt.alpha)
         self.loss_function = nn.CrossEntropyLoss()
-        self.optimizer = torch.optim.Adam(self.parameters(), lr=opt.lr, weight_decay=opt.l2)
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=opt.lr_dc_step, gamma=opt.lr_dc)
+        self.optimizer = torch.optim.Adam(
+            self.parameters(), lr=opt.lr, weight_decay=opt.l2
+        )
+        self.scheduler = torch.optim.lr_scheduler.StepLR(
+            self.optimizer, step_size=opt.lr_dc_step, gamma=opt.lr_dc
+        )
 
         self.reset_parameters()
 
@@ -101,7 +105,9 @@ class CombineGraph(Module):
         support_size = seqs_len
 
         for i in range(1, self.hop + 1):
-            item_sample_i, weight_sample_i = self.sample(item_neighbors[-1], self.sample_num)
+            item_sample_i, weight_sample_i = self.sample(
+                item_neighbors[-1], self.sample_num
+            )
             support_size *= self.sample_num
             item_neighbors.append(item_sample_i.view(batch_size, support_size))
             weight_neighbors.append(weight_sample_i.view(batch_size, support_size))
@@ -111,13 +117,15 @@ class CombineGraph(Module):
 
         session_info = []
         item_emb = self.embedding(item) * mask_item.float().unsqueeze(-1)
-        
-        # mean 
-        sum_item_emb = torch.sum(item_emb, 1) / torch.sum(mask_item.float(), -1).unsqueeze(-1)
-        
+
+        # mean
+        sum_item_emb = torch.sum(item_emb, 1) / torch.sum(
+            mask_item.float(), -1
+        ).unsqueeze(-1)
+
         # sum
         # sum_item_emb = torch.sum(item_emb, 1)
-        
+
         sum_item_emb = sum_item_emb.unsqueeze(-2)
         for i in range(self.hop):
             session_info.append(sum_item_emb.repeat(1, entity_vectors[i].shape[1], 1))
@@ -127,12 +135,16 @@ class CombineGraph(Module):
             shape = [batch_size, -1, self.sample_num, self.dim]
             for hop in range(self.hop - n_hop):
                 aggregator = self.global_agg[n_hop]
-                vector = aggregator(self_vectors=entity_vectors[hop],
-                                    neighbor_vector=entity_vectors[hop+1].view(shape),
-                                    masks=None,
-                                    batch_size=batch_size,
-                                    neighbor_weight=weight_vectors[hop].view(batch_size, -1, self.sample_num),
-                                    extra_vector=session_info[hop])
+                vector = aggregator(
+                    self_vectors=entity_vectors[hop],
+                    neighbor_vector=entity_vectors[hop + 1].view(shape),
+                    masks=None,
+                    batch_size=batch_size,
+                    neighbor_weight=weight_vectors[hop].view(
+                        batch_size, -1, self.sample_num
+                    ),
+                    extra_vector=session_info[hop],
+                )
                 entity_vectors_next_iter.append(vector)
             entity_vectors = entity_vectors_next_iter
 
@@ -175,11 +187,16 @@ def forward(model, data):
 
 
 def train_test(model, train_data, test_data):
-    print('start training: ', datetime.datetime.now())
+    print("start training: ", datetime.datetime.now())
     model.train()
     total_loss = 0.0
-    train_loader = torch.utils.data.DataLoader(train_data, num_workers=4, batch_size=model.batch_size,
-                                               shuffle=True, pin_memory=True)
+    train_loader = torch.utils.data.DataLoader(
+        train_data,
+        num_workers=4,
+        batch_size=model.batch_size,
+        shuffle=True,
+        pin_memory=True,
+    )
     for data in tqdm(train_loader):
         model.optimizer.zero_grad()
         targets, scores = forward(model, data)
@@ -188,13 +205,18 @@ def train_test(model, train_data, test_data):
         loss.backward()
         model.optimizer.step()
         total_loss += loss
-    print('\tLoss:\t%.3f' % total_loss)
+    print("\tLoss:\t%.3f" % total_loss)
     model.scheduler.step()
 
-    print('start predicting: ', datetime.datetime.now())
+    print("start predicting: ", datetime.datetime.now())
     model.eval()
-    test_loader = torch.utils.data.DataLoader(test_data, num_workers=4, batch_size=model.batch_size,
-                                              shuffle=False, pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(
+        test_data,
+        num_workers=4,
+        batch_size=model.batch_size,
+        shuffle=False,
+        pin_memory=True,
+    )
     result = []
     hit, mrr = [], []
     for data in test_loader:
